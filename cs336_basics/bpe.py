@@ -21,7 +21,7 @@ class BPE():
     
     def pre_tokenization(self):
 
-        PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        
         pre_token_freq_table = Counter()
 
         with open(self.input_path, "rb") as f:
@@ -30,13 +30,9 @@ class BPE():
 
             # The following is a serial implementation, but you can parallelize this
             # by sending each start/end pair to a set of processes.
-            chunks = []
-            for start, end in zip(boundaries[:-1], boundaries[1:]):
-                f.seek(start)
-                chunk = f.read(end - start).decode("utf-8", errors="ignore")
-                chunks.append(chunk)
+            
             with ProcessPoolExecutor(max_workers=num_processes) as executor:
-                futures = [executor.submit(pre_tokenize_chunk,self.special_tokens,chunk,PAT) for chunk in chunks]
+                futures = [executor.submit(pre_tokenize_chunk,self.input_path,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
                 for future in futures:
                     pre_token_freq_table.update(future.result())
             
@@ -128,14 +124,19 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
         return sorted(set(chunk_boundaries))
 
-def pre_tokenize_chunk(special_tokens,chunk,PAT):
-
+def pre_tokenize_chunk(input_path,special_tokens,start,end):
+        
+        PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         # Run pre-tokenization on your chunk and store the counts for each pre-token
         #TODO:support no special token branch
         sub_freq_table = Counter()
         special_tokens_re = [re.escape(special_token) for special_token in special_tokens]
         special_tokens_re = "|".join(special_tokens_re)
-            
+
+        with open(input_path, "rb") as f:
+            f.seek(start)
+            chunk = f.read(end - start).decode("utf-8", errors="ignore")
+
         for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
             for match in re.finditer(PAT,sub_chunk):#pre-token matching
                 pre_token = match.group()
