@@ -30,7 +30,7 @@ class BPE():
 
             # The following is a serial implementation, but you can parallelize this
             # by sending each start/end pair to a set of processes.
-            
+
             with ProcessPoolExecutor(max_workers=num_processes) as executor:
                 futures = [executor.submit(pre_tokenize_chunk,self.input_path,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
                 for future in futures:
@@ -47,11 +47,9 @@ class BPE():
         for i in range(self.vocab_size - len(self.vocab)):
 
             successive_freq_table = Counter()
-
+            best_pair = None
             for key,val in last_freq_table.items():#find the frequencies of the latest successive pairs
-                key_biased = key[1:]
-                key_zipped = zip(key,key_biased)
-                for pair in key_zipped:
+                for pair in zip(key,key[1:]):
                     successive_freq_table[pair] += val
             if len(successive_freq_table):
                 best_pair = max(successive_freq_table,key = lambda pair:(successive_freq_table[pair],pair))
@@ -129,6 +127,7 @@ def pre_tokenize_chunk(input_path,special_tokens,start,end):
         PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
         # Run pre-tokenization on your chunk and store the counts for each pre-token
         #TODO:support no special token branch
+        sub_freq_table_raw = Counter()
         sub_freq_table = Counter()
         special_tokens_re = [re.escape(special_token) for special_token in special_tokens]
         special_tokens_re = "|".join(special_tokens_re)
@@ -140,5 +139,7 @@ def pre_tokenize_chunk(input_path,special_tokens,start,end):
         for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
             for match in re.finditer(PAT,sub_chunk):#pre-token matching
                 pre_token = match.group()
-                sub_freq_table[tuple(bytes([i]) for i in pre_token.encode("utf-8"))] += 1
+                sub_freq_table_raw[pre_token] += 1
+        for key,val in sub_freq_table_raw.items():
+            sub_freq_table[tuple(bytes([i]) for i in key.encode("utf-8"))] = val
         return sub_freq_table
