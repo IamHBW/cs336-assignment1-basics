@@ -16,21 +16,8 @@ class BPE():
             self.vocab[i] = bytes([i])
         for i in range(256,256 + len(special_tokens)):
             self.vocab[i] = special_tokens[i - 256].encode("utf-8")
-            
-    def pre_tokenize_chunk(self,start,end,f,PAT):
-        f.seek(start)
-        chunk = f.read(end - start).decode("utf-8", errors="ignore")
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
-        #TODO:support no special token branch
-        sub_freq_table = Counter()
-        special_tokens_re = [re.escape(special_token) for special_token in self.special_tokens]
-        special_tokens_re = "|".join(special_tokens_re)
-            
-        for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
-            for match in re.finditer(PAT,sub_chunk):#pre-token matching
-                pre_token = match.group()
-                sub_freq_table[tuple(bytes([i]) for i in pre_token.encode("utf-8"))] += 1
-        return sub_freq_table
+
+    
     
     def pre_tokenization(self):
 
@@ -43,8 +30,13 @@ class BPE():
 
             # The following is a serial implementation, but you can parallelize this
             # by sending each start/end pair to a set of processes.
+            chunks = []
+            for start, end in zip(boundaries[:-1], boundaries[1:]):
+                f.seek(start)
+                chunk = f.read(end - start).decode("utf-8", errors="ignore")
+                chunks.append(chunk)
             with ProcessPoolExecutor(max_workers=num_processes) as executor:
-                futures = [executor.submit(self.pre_tokenize_chunk,start,end,f,PAT) for start, end in zip(boundaries[:-1], boundaries[1:])]
+                futures = [executor.submit(pre_tokenize_chunk,self.special_tokens,chunk,PAT) for chunk in chunks]
                 for future in futures:
                     pre_token_freq_table.update(future.result())
             
@@ -88,7 +80,6 @@ class BPE():
             self.merges.append(best_pair)
 
             last_freq_table = next_freq_table
-
 
 
 def find_chunk_boundaries(
@@ -136,3 +127,17 @@ def find_chunk_boundaries(
 
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
         return sorted(set(chunk_boundaries))
+
+def pre_tokenize_chunk(special_tokens,chunk,PAT):
+
+        # Run pre-tokenization on your chunk and store the counts for each pre-token
+        #TODO:support no special token branch
+        sub_freq_table = Counter()
+        special_tokens_re = [re.escape(special_token) for special_token in special_tokens]
+        special_tokens_re = "|".join(special_tokens_re)
+            
+        for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
+            for match in re.finditer(PAT,sub_chunk):#pre-token matching
+                pre_token = match.group()
+                sub_freq_table[tuple(bytes([i]) for i in pre_token.encode("utf-8"))] += 1
+        return sub_freq_table
