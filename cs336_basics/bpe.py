@@ -3,6 +3,8 @@ from typing import BinaryIO
 import regex as re
 from collections import Counter
 from concurrent.futures import ProcessPoolExecutor
+from datetime import datetime
+from tqdm import tqdm
 
 class BPE():
     def __init__(self,input_path:str,vocab_size:int,special_tokens:list[str]):
@@ -21,11 +23,11 @@ class BPE():
     
     def pre_tokenization(self):
 
-        
+        print(datetime.now(),"Beginning pre tokenization")
         pre_token_freq_table = Counter()
 
         with open(self.input_path, "rb") as f:
-            num_processes = 4
+            num_processes = 8
             boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
 
             # The following is a serial implementation, but you can parallelize this
@@ -35,7 +37,7 @@ class BPE():
                 futures = [executor.submit(pre_tokenize_chunk,self.input_path,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
                 for future in futures:
                     pre_token_freq_table.update(future.result())
-            
+        print(datetime.now(),"Finished pre tokenization")
         return pre_token_freq_table
         
 
@@ -44,7 +46,7 @@ class BPE():
 
     def merge(self,pre_token_freq_table:dict[tuple[bytes, ...], int]):
         last_freq_table = pre_token_freq_table
-        for i in range(self.vocab_size - len(self.vocab)):
+        for i in tqdm(range(self.vocab_size - len(self.vocab))):
 
             successive_freq_table = Counter()
             best_pair = None
