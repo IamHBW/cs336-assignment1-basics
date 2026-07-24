@@ -1,6 +1,7 @@
 from cs336_basics.bpe import BPE
 import argparse
 import pickle
+from pathlib import Path
 
 def main():
     parser = argparse.ArgumentParser()
@@ -14,10 +15,11 @@ def main():
 
     tokenizer.train()
 
-    with open("vocab_and_merges.pkl","wb") as f:
-        data = {"vocab": tokenizer.vocab,"merges": tokenizer.merges}
-        pickle.dump(data,f)
+    with open(f"vocab_{Path(args.input).stem}.pkl","wb") as f:
+        pickle.dump(tokenizer.vocab,f)
 
+    with open(f"merges_{Path(args.input).stem}.pkl","wb") as f:
+        pickle.dump(tokenizer.merges,f)
 
 
 if __name__ == "__main__":
