@@ -1,7 +1,8 @@
 import os
 from typing import BinaryIO
 import regex as re
-from collections import Counter
+from collections import Counter,defaultdict
+from collections.abc import Iterable,Iterator
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from tqdm import tqdm
@@ -19,7 +20,17 @@ class BPE():
         for i in range(256,256 + len(special_tokens)):
             self.vocab[i] = special_tokens[i - 256].encode("utf-8")
 
-    
+    def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
+        pass
+
+    def encode(self, text: str) -> list[int]:
+        pass
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        pass
+
+    def decode(self, ids: list[int]) -> str:
+        pass
     
     def pre_tokenization(self):
 
@@ -45,37 +56,74 @@ class BPE():
         self.merge(self.pre_tokenization())
 
     def merge(self,pre_token_freq_table:dict[tuple[bytes, ...], int]):
-        last_freq_table = pre_token_freq_table
-        for i in tqdm(range(self.vocab_size - len(self.vocab))):
+        pair_freq_table = Counter()
+        pair_idx_table = defaultdict(set)
+        idx = 0
+        current_tokens = []
+        current_tokens_freq = []
+        for key,val in pre_token_freq_table.items():#find the frequencies of the latest successive pairs
+                
+                key_zipped = list(zip(key,key[1:]))
+                current_tokens.append(key)
+                current_tokens_freq.append(val)
+                for k in range(len(key_zipped)):
+                    pair_freq_table[key_zipped[k]] += val
+                    pair_idx_table[key_zipped[k]].add(idx)
+                
+                idx += 1
 
-            successive_freq_table = Counter()
+        for i in tqdm(range(self.vocab_size - len(self.vocab))):
             best_pair = None
-            for key,val in last_freq_table.items():#find the frequencies of the latest successive pairs
-                for pair in zip(key,key[1:]):
-                    successive_freq_table[pair] += val
-            if len(successive_freq_table):
-                best_pair = max(successive_freq_table,key = lambda pair:(successive_freq_table[pair],pair))
+            idx_update = set()
+
+            num_pos = sum(value > 0 for value in pair_freq_table.values())
+            if num_pos :
+                best_pair = max(pair_freq_table,key = lambda pair:(pair_freq_table[pair],pair))
             else:
                 break
-            new_token = best_pair[0] + best_pair[1]
 
-            next_freq_table = Counter()
-            for key,val in last_freq_table.items():#merge the best pair
+            new_word = best_pair[0] + best_pair[1]
+            for idx in pair_idx_table[best_pair]:
+                idx_update.add(idx)
+
+            for idx in idx_update:#update current tokens
+                old_key = current_tokens[idx]
                 new_key = []
                 j = 0
-                while j < len(key):
-                    if (j < len(key) - 1) and (key[j], key[j + 1]) == best_pair:
-                        new_key.append(key[j] + key[j + 1])
+                while j < len(old_key):
+                    if (j < len(old_key) - 1) and (old_key[j], old_key[j + 1]) == best_pair:
+                        new_key.append(old_key[j] + old_key[j + 1])
                         j += 2
                     else:
-                        new_key.append(key[j])
+                        new_key.append(old_key[j])
                         j += 1
-                next_freq_table[tuple(new_key)] += val
+
+                old_pairs = list(zip(old_key,old_key[1:]))
+                new_pairs = list(zip(new_key,new_key[1:]))
+                merge_count = defaultdict(int)
+                for old_pair in old_pairs:
+                    
+                    merge_count[old_pair] -= 1
+                    pair_idx_table[old_pair].discard(idx)
+                
+                  
+                for new_pair in new_pairs:
+                    
+                    merge_count[new_pair] += 1
+
+                    pair_idx_table[new_pair].add(idx)
+
+                for pair,count in merge_count.items():
+                    pair_freq_table[pair] += current_tokens_freq[idx] * count
+
+                current_tokens[idx] = new_key
+                   
+                
+                                
             
-            self.vocab[len(self.vocab)] = new_token
+            self.vocab[len(self.vocab)] = new_word
             self.merges.append(best_pair)
 
-            last_freq_table = next_freq_table
 
 
 def find_chunk_boundaries(
