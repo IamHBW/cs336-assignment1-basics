@@ -120,8 +120,14 @@ class BPE():
                  merges: list[tuple[bytes, bytes]], 
                  special_tokens: list[str] | None = None ):
         self.vocab = vocab
+        if special_tokens is not None:
+            for special_token in special_tokens:
+                if special_token not in self.vocab.values():
+                    self.vocab[len(vocab)] = special_token.encode()
         self.merges = merges
-        self.special_tokens = special_tokens
+        self.special_tokens = (
+            [] if special_tokens is None else special_tokens
+            )           
         self.inverse_vocab = {
                 word: token_id
                 for token_id, word in self.vocab.items()
@@ -136,7 +142,6 @@ class BPE():
         return cls(vocab,merges,special_tokens)
 
     def encode(self, text: str) -> list[int]:
-
         
         num_processes = 32
         num_chunks = 64
@@ -145,10 +150,13 @@ class BPE():
         # The following is a serial implementation, but you can parallelize this
         # by sending each start/end pair to a set of processes.
 
-        with ProcessPoolExecutor(max_workers=num_processes) as executor:
-            futures = [executor.submit(self.tokenize_chunk_text,text,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
-            for future in futures:
-                token_ids.extend(future.result())
+        for start,end in zip(boundaries[:-1], boundaries[1:]):
+            token_ids.extend(self.tokenize_chunk_text(text,self.special_tokens,start,end))
+
+        # with ProcessPoolExecutor(max_workers=num_processes) as executor:
+        #     futures = [executor.submit(self.tokenize_chunk_text,text,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
+        #     for future in futures:
+        #         token_ids.extend(future.result())
 
         return token_ids
 
@@ -160,25 +168,56 @@ class BPE():
             yield from self.encode(text)
 
     def decode(self, ids: list[int]) -> str:
-        pass
+        text_bytes = b"".join(
+            self.vocab[id]
+            for id in ids
+        )
+        return text_bytes.decode("utf-8",errors='replace')
 
     def tokenize_chunk_text(self,text: str,special_tokens: list[str],start,end):
         
         PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
-        #TODO:support no special token branch
-        special_tokens_re = [re.escape(special_token) for special_token in special_tokens]
-        special_tokens_re = "|".join(special_tokens_re)
-
         chunk = text[start:end]
         sub_token_ids = []
-        for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
-            for match in re.finditer(PAT,sub_chunk):#pre-token matching
+        # Run pre-tokenization on your chunk and store the counts for each pre-token
+        #TODO:support no special token branch
+        if special_tokens is not None:
+            special_token_set = set(special_tokens)
+            special_tokens_re = "|".join(
+                    re.escape(token)
+                    for token in sorted(special_tokens, key=len, reverse=True)
+                )
+            special_tokens_re = f"({special_tokens_re})"
+            for part in re.splititer(special_tokens_re,chunk):
+                if part in special_token_set:
+                    sub_token_ids.append(self.inverse_vocab[part.encode("utf-8")])
+                else:
+                    for match in re.finditer(PAT,part):#pre-token matching
+                        pre_token = match.group()
+                        initial_symbols = tuple(bytes([i]) for i in pre_token.encode("utf-8"))
+                        old_symbols = initial_symbols
+                        for pair in self.merges:#update current tokens
+                        
+                            new_symbols = []
+                            j = 0
+                            while j < len(old_symbols):
+                                if (j < len(old_symbols) - 1) and (old_symbols[j], old_symbols[j + 1]) == pair:
+                                    new_symbols.append(old_symbols[j] + old_symbols[j + 1])
+                                    j += 2
+                                else:
+                                    new_symbols.append(old_symbols[j])
+                                    j += 1
+                            old_symbols = new_symbols
+                        # transform old symbols into ids
+                        sub_token_ids.extend([self.inverse_vocab[symbol] for symbol in old_symbols])
+
+        else:
+            for match in re.finditer(PAT,chunk):#pre-token matching
                 pre_token = match.group()
                 initial_symbols = tuple(bytes([i]) for i in pre_token.encode("utf-8"))
                 old_symbols = initial_symbols
                 for pair in self.merges:#update current tokens
-                   
+                
                     new_symbols = []
                     j = 0
                     while j < len(old_symbols):
@@ -191,6 +230,8 @@ class BPE():
                     old_symbols = new_symbols
                 # transform old symbols into ids
                 sub_token_ids.extend([self.inverse_vocab[symbol] for symbol in old_symbols])
+        
+        
 
         return sub_token_ids
 
@@ -244,13 +285,13 @@ def find_chunk_boundaries(
 def find_chunk_boundaries_text(
     text: str,
     desired_num_chunks: int,
-    split_special_token: str,
+    split_special_token: bytes,
     ) -> list[int]:
         """
         Chunk the text into parts that can be counted independently.
         May return fewer chunks if the boundaries end up overlapping.
         """
-        split_special_token_byte = split_special_token.encode("utf-8")
+        assert isinstance(split_special_token, bytes), "Must represent special token as a bytestring"
 
         text_byte = text.encode("utf-8")
         # Get total text size in bytes
@@ -277,7 +318,7 @@ def find_chunk_boundaries_text(
                     break
 
                 # Find the special token in the mini chunk
-                found_at = mini_chunk.find(split_special_token_byte)
+                found_at = mini_chunk.find(split_special_token)
                 if found_at != -1:
                     chunk_boundaries[bi] = initial_position + found_at
                     break
