@@ -122,6 +122,10 @@ class BPE():
         self.vocab = vocab
         self.merges = merges
         self.special_tokens = special_tokens
+        self.inverse_vocab = {
+                word: token_id
+                for token_id, word in self.vocab.items()
+                }
 
     @classmethod
     def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None):
@@ -133,27 +137,62 @@ class BPE():
 
     def encode(self, text: str) -> list[int]:
 
-        print(datetime.now(),"Beginning pre tokenization")
-        pre_token_freq_table = Counter()
         
         num_processes = 32
         num_chunks = 64
         boundaries = find_chunk_boundaries_text(text, num_chunks, b"<|endoftext|>")
-
+        token_ids = []
         # The following is a serial implementation, but you can parallelize this
         # by sending each start/end pair to a set of processes.
 
         with ProcessPoolExecutor(max_workers=num_processes) as executor:
-            futures = [executor.submit(pre_tokenize_chunk,self.input_path,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
+            futures = [executor.submit(self.tokenize_chunk_text,text,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
             for future in futures:
-                pre_token_freq_table.update(future.result())
-        print(datetime.now(),"Finished pre tokenization")
+                token_ids.extend(future.result())
+
+        return token_ids
+
+        
+
 
     def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        pass
+        for text in iterable:
+            yield from self.encode(text)
 
     def decode(self, ids: list[int]) -> str:
         pass
+
+    def tokenize_chunk_text(self,text: str,special_tokens: list[str],start,end):
+        
+        PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        # Run pre-tokenization on your chunk and store the counts for each pre-token
+        #TODO:support no special token branch
+        special_tokens_re = [re.escape(special_token) for special_token in special_tokens]
+        special_tokens_re = "|".join(special_tokens_re)
+
+        chunk = text[start:end]
+        sub_token_ids = []
+        for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
+            for match in re.finditer(PAT,sub_chunk):#pre-token matching
+                pre_token = match.group()
+                initial_symbols = tuple(bytes([i]) for i in pre_token.encode("utf-8"))
+                old_symbols = initial_symbols
+                for pair in self.merges:#update current tokens
+                   
+                    new_symbols = []
+                    j = 0
+                    while j < len(old_symbols):
+                        if (j < len(old_symbols) - 1) and (old_symbols[j], old_symbols[j + 1]) == pair:
+                            new_symbols.append(old_symbols[j] + old_symbols[j + 1])
+                            j += 2
+                        else:
+                            new_symbols.append(old_symbols[j])
+                            j += 1
+                    old_symbols = new_symbols
+                # transform old symbols into ids
+                sub_token_ids.extend([self.inverse_vocab[symbol] for symbol in old_symbols])
+
+        return sub_token_ids
 
 
 def find_chunk_boundaries(
@@ -269,22 +308,3 @@ def pre_tokenize_chunk(input_path,special_tokens,start,end):
             sub_freq_table[tuple(bytes([i]) for i in key.encode("utf-8"))] = val
         return sub_freq_table
 
-def pre_tokenize_chunk_text(text: str,special_tokens: list[str],start,end):
-        
-        PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        # Run pre-tokenization on your chunk and store the counts for each pre-token
-        #TODO:support no special token branch
-        sub_freq_table_raw = Counter()
-        sub_freq_table = Counter()
-        special_tokens_re = [re.escape(special_token) for special_token in special_tokens]
-        special_tokens_re = "|".join(special_tokens_re)
-
-        chunk = text[start:end]
-
-        for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
-            for match in re.finditer(PAT,sub_chunk):#pre-token matching
-                pre_token = match.group()
-                sub_freq_table_raw[pre_token] += 1
-        for key,val in sub_freq_table_raw.items():
-            sub_freq_table[tuple(bytes([i]) for i in key.encode("utf-8"))] = val
-        return sub_freq_table
