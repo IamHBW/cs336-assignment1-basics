@@ -122,8 +122,8 @@ class BPE():
         self.vocab = vocab
         if special_tokens is not None:
             for special_token in special_tokens:
-                if special_token not in self.vocab.values():
-                    self.vocab[len(vocab)] = special_token.encode()
+                if special_token.encode("utf-8") not in self.vocab.values():
+                    self.vocab[len(vocab)] = special_token.encode("utf-8")
         self.merges = merges
         self.special_tokens = (
             [] if special_tokens is None else special_tokens
@@ -177,7 +177,9 @@ class BPE():
     def tokenize_chunk_text(self,text: str,special_tokens: list[str],start,end):
         
         PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
-        chunk = text[start:end]
+        text_byte = text.encode("utf-8")
+        chunk_bytes = text_byte[start:end]
+        chunk = chunk_bytes.decode("utf-8")
         sub_token_ids = []
         # Run pre-tokenization on your chunk and store the counts for each pre-token
         #TODO:support no special token branch
