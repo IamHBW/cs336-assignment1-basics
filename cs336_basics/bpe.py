@@ -6,8 +6,9 @@ from collections.abc import Iterable,Iterator
 from concurrent.futures import ProcessPoolExecutor
 from datetime import datetime
 from tqdm import tqdm
+import pickle
 
-class BPE():
+class BPE_train():
     def __init__(self,input_path:str,vocab_size:int,special_tokens:list[str]):
         self.input_path = input_path
         self.vocab_size = vocab_size
@@ -19,18 +20,7 @@ class BPE():
             self.vocab[i] = bytes([i])
         for i in range(256,256 + len(special_tokens)):
             self.vocab[i] = special_tokens[i - 256].encode("utf-8")
-
-    def from_files(cls, vocab_filepath, merges_filepath, special_tokens=None):
-        pass
-
-    def encode(self, text: str) -> list[int]:
-        pass
-
-    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
-        pass
-
-    def decode(self, ids: list[int]) -> str:
-        pass
+    
     
     def pre_tokenization(self):
 
@@ -38,8 +28,9 @@ class BPE():
         pre_token_freq_table = Counter()
 
         with open(self.input_path, "rb") as f:
-            num_processes = 8
-            boundaries = find_chunk_boundaries(f, num_processes, b"<|endoftext|>")
+            num_processes = 32
+            num_chunks = 64
+            boundaries = find_chunk_boundaries(f, num_chunks, b"<|endoftext|>")
 
             # The following is a serial implementation, but you can parallelize this
             # by sending each start/end pair to a set of processes.
@@ -124,6 +115,45 @@ class BPE():
             self.vocab[len(self.vocab)] = new_word
             self.merges.append(best_pair)
 
+class BPE():
+    def __init__(self, vocab: dict[int, bytes], 
+                 merges: list[tuple[bytes, bytes]], 
+                 special_tokens: list[str] | None = None ):
+        self.vocab = vocab
+        self.merges = merges
+        self.special_tokens = special_tokens
+
+    @classmethod
+    def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None):
+        with open(vocab_filepath,"rb") as f:
+            vocab = pickle.load(f)
+        with open(merges_filepath,"rb") as f:
+            merges = pickle.load(f)
+        return cls(vocab,merges,special_tokens)
+
+    def encode(self, text: str) -> list[int]:
+
+        print(datetime.now(),"Beginning pre tokenization")
+        pre_token_freq_table = Counter()
+        
+        num_processes = 32
+        num_chunks = 64
+        boundaries = find_chunk_boundaries_text(text, num_chunks, b"<|endoftext|>")
+
+        # The following is a serial implementation, but you can parallelize this
+        # by sending each start/end pair to a set of processes.
+
+        with ProcessPoolExecutor(max_workers=num_processes) as executor:
+            futures = [executor.submit(pre_tokenize_chunk,self.input_path,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
+            for future in futures:
+                pre_token_freq_table.update(future.result())
+        print(datetime.now(),"Finished pre tokenization")
+
+    def encode_iterable(self, iterable: Iterable[str]) -> Iterator[int]:
+        pass
+
+    def decode(self, ids: list[int]) -> str:
+        pass
 
 
 def find_chunk_boundaries(
@@ -172,6 +202,51 @@ def find_chunk_boundaries(
     # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
         return sorted(set(chunk_boundaries))
 
+def find_chunk_boundaries_text(
+    text: str,
+    desired_num_chunks: int,
+    split_special_token: str,
+    ) -> list[int]:
+        """
+        Chunk the text into parts that can be counted independently.
+        May return fewer chunks if the boundaries end up overlapping.
+        """
+        split_special_token_byte = split_special_token.encode("utf-8")
+
+        text_byte = text.encode("utf-8")
+        # Get total text size in bytes
+        text_size = len(text_byte)
+
+        chunk_size = text_size // desired_num_chunks
+
+        # Initial guesses for chunk boundary locations, uniformly spaced
+        # Chunks start on previous index, don't include last index
+        chunk_boundaries = [i * chunk_size for i in range(desired_num_chunks + 1)]
+        chunk_boundaries[-1] = text_size
+
+        mini_chunk_size = 4096  # Read ahead by 4k bytes at a time
+
+        for bi in range(1, len(chunk_boundaries) - 1):
+            initial_position = chunk_boundaries[bi]
+            cursor = initial_position  # Start at boundary guess
+            while True:
+                mini_chunk = text_byte[cursor:cursor + mini_chunk_size]  # Read a mini chunk
+                cursor += mini_chunk_size
+                # If EOF, this boundary should be at the end of the text
+                if mini_chunk == b"":
+                    chunk_boundaries[bi] = text_size
+                    break
+
+                # Find the special token in the mini chunk
+                found_at = mini_chunk.find(split_special_token_byte)
+                if found_at != -1:
+                    chunk_boundaries[bi] = initial_position + found_at
+                    break
+                initial_position += mini_chunk_size
+
+    # Make sure all boundaries are unique, but might be fewer than desired_num_chunks
+        return sorted(set(chunk_boundaries))
+
 def pre_tokenize_chunk(input_path,special_tokens,start,end):
         
         PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
@@ -185,6 +260,26 @@ def pre_tokenize_chunk(input_path,special_tokens,start,end):
         with open(input_path, "rb") as f:
             f.seek(start)
             chunk = f.read(end - start).decode("utf-8", errors="ignore")
+
+        for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
+            for match in re.finditer(PAT,sub_chunk):#pre-token matching
+                pre_token = match.group()
+                sub_freq_table_raw[pre_token] += 1
+        for key,val in sub_freq_table_raw.items():
+            sub_freq_table[tuple(bytes([i]) for i in key.encode("utf-8"))] = val
+        return sub_freq_table
+
+def pre_tokenize_chunk_text(text: str,special_tokens: list[str],start,end):
+        
+        PAT=r"""'(?:[sdmt]|ll|ve|re)| ?\p{L}+| ?\p{N}+| ?[^\s\p{L}\p{N}]+|\s+(?!\S)|\s+"""
+        # Run pre-tokenization on your chunk and store the counts for each pre-token
+        #TODO:support no special token branch
+        sub_freq_table_raw = Counter()
+        sub_freq_table = Counter()
+        special_tokens_re = [re.escape(special_token) for special_token in special_tokens]
+        special_tokens_re = "|".join(special_tokens_re)
+
+        chunk = text[start:end]
 
         for sub_chunk in re.splititer(special_tokens_re,chunk):#filter out special token
             for match in re.finditer(PAT,sub_chunk):#pre-token matching

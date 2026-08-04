@@ -1,4 +1,4 @@
-from cs336_basics.bpe import BPE
+from cs336_basics.bpe import BPE_train
 import argparse
 import pickle
 from pathlib import Path
@@ -11,7 +11,7 @@ def main():
 
     args = parser.parse_args()
 
-    tokenizer = BPE(args.input,args.vocab_size,args.special_tokens)
+    tokenizer = BPE_train(args.input,args.vocab_size,args.special_tokens)
 
     tokenizer.train()
 
