@@ -143,7 +143,7 @@ class BPE():
 
     def encode(self, text: str) -> list[int]:
         num_processes = 32
-        num_chunks = 64
+        num_chunks = 32
         boundaries = find_chunk_boundaries_text(text, num_chunks, b"<|endoftext|>")
         token_ids = []
         # The following is a serial implementation, but you can parallelize this

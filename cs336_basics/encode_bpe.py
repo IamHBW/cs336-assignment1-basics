@@ -1,4 +1,6 @@
-from cs336_basics.bpe import BPE
+import os
+from typing import BinaryIO
+from cs336_basics.bpe import BPE,find_chunk_boundaries
 import argparse
 import numpy as np
 from pathlib import Path
@@ -10,7 +12,6 @@ def main():
     output_dir = Path("outputs/ids")
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    buffer_size = 4096
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset",required=True)
@@ -26,24 +27,30 @@ def main():
         tokenizer = BPE.from_files("outputs/tokenizers/vocab_TinyStoriesV2-GPT4-train.pkl","outputs/tokenizers/merges_TinyStoriesV2-GPT4-train.pkl",args.special_tokens)
         dataset_paths = TinyStories_paths
 
-
+    num_chunks = 64
     for dataset in dataset_paths :
         output_path = output_dir / f"{Path(dataset).stem}.npy"
-        buffer: list[int] = []
-        with (open(dataset, "r", encoding="utf-8") as input_file,
+        with (open(dataset, "rb") as input_file,
               open(output_path, "wb") as output_file):
             print(datetime.now(),f"Generating {output_path}")
-            for token_id in tokenizer.encode_iterable(input_file):
+            boundaries = find_chunk_boundaries(input_file,num_chunks,b"<|endoftext|>")
+            i = 0
+            for start,end in zip(boundaries[:-1], boundaries[1:]):
+                token_ids = encode_chunk(dataset,start,end,tokenizer)
+                np.asarray(token_ids, dtype="<u2").tofile(output_file)
+                print(datetime.now(),f"Written {output_path} block {i}")
+                i += 1
 
-                buffer.append(token_id)
-
-                if len(buffer) >= buffer_size:
-                    np.asarray(buffer, dtype="<u2").tofile(output_file)
-                    buffer.clear()
-
-            # 写入不足一个 buffer 的剩余 token
-            if buffer:
-                np.asarray(buffer, dtype="<u2").tofile(output_file)
+def encode_chunk(
+    input_path: BinaryIO,
+    start: int,
+    end: int,
+    tokenizer: BPE
+    ) -> list[int]:
+    with open(input_path, "rb") as f:
+        f.seek(start)
+        text = f.read(end - start).decode("utf-8", errors="ignore")
+        return tokenizer.encode(text)
 
 
 if __name__ == "__main__":
