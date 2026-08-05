@@ -142,7 +142,6 @@ class BPE():
         return cls(vocab,merges,special_tokens)
 
     def encode(self, text: str) -> list[int]:
-        
         num_processes = 32
         num_chunks = 64
         boundaries = find_chunk_boundaries_text(text, num_chunks, b"<|endoftext|>")
@@ -150,13 +149,13 @@ class BPE():
         # The following is a serial implementation, but you can parallelize this
         # by sending each start/end pair to a set of processes.
 
-        for start,end in zip(boundaries[:-1], boundaries[1:]):
-            token_ids.extend(self.tokenize_chunk_text(text,self.special_tokens,start,end))
+        # for start,end in zip(boundaries[:-1], boundaries[1:]):
+        #     token_ids.extend(self.tokenize_chunk_text(text,self.special_tokens,start,end))
 
-        # with ProcessPoolExecutor(max_workers=num_processes) as executor:
-        #     futures = [executor.submit(self.tokenize_chunk_text,text,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
-        #     for future in futures:
-        #         token_ids.extend(future.result())
+        with ProcessPoolExecutor(max_workers=num_processes) as executor:
+            futures = [executor.submit(self.tokenize_chunk_text,text,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
+            for future in futures:
+                token_ids.extend(future.result())
 
         return token_ids
 
@@ -183,7 +182,7 @@ class BPE():
         sub_token_ids = []
         # Run pre-tokenization on your chunk and store the counts for each pre-token
         #TODO:support no special token branch
-        if special_tokens is not None:
+        if special_tokens:
             special_token_set = set(special_tokens)
             special_tokens_re = "|".join(
                     re.escape(token)
@@ -196,10 +195,9 @@ class BPE():
                 else:
                     for match in re.finditer(PAT,part):#pre-token matching
                         pre_token = match.group()
-                        initial_symbols = tuple(bytes([i]) for i in pre_token.encode("utf-8"))
+                        initial_symbols = [bytes([i]) for i in pre_token.encode("utf-8")]
                         old_symbols = initial_symbols
                         for pair in self.merges:#update current tokens
-                        
                             new_symbols = []
                             j = 0
                             while j < len(old_symbols):
