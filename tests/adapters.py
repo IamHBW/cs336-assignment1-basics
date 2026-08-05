@@ -31,7 +31,8 @@ def run_linear(
         Float[Tensor, "... d_out"]: The transformed output of your linear module.
     """
     linear = Linear(d_in,d_out)
-    linear.weight = weights
+    with torch.no_grad():
+        linear.weight.copy_(weights)
     return linear(in_features)
 
 
