@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
 
 from cs336_basics.bpe import BPE_train,BPE
-from cs336_basics.building_blocks import Linear
+from cs336_basics.building_blocks import Linear,Embedding
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -54,8 +54,10 @@ def run_embedding(
     Returns:
         Float[Tensor, "... d_model"]: Batch of embeddings returned by your Embedding layer.
     """
-
-    raise NotImplementedError
+    embedding = Embedding(vocab_size,d_model)
+    with torch.no_grad():
+        embedding.weights.copy_(weights)
+    return embedding(token_ids)
 
 
 def run_swiglu(
