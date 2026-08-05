@@ -10,6 +10,8 @@ def main():
     output_dir = Path("outputs/ids")
     output_dir.mkdir(parents=True, exist_ok=True)
 
+    buffer_size = 4096
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--dataset",required=True)
     parser.add_argument("--special_tokens",nargs="+",default=["<|endoftext|>"])
@@ -27,11 +29,21 @@ def main():
 
     for dataset in dataset_paths :
         output_path = output_dir / f"{Path(dataset).stem}.npy"
-        print(datetime.now(),f"Generating {output_path}")
-        with open(dataset, "r", encoding="utf-8") as f:
-            text = f.read()
-            token_ids =  np.asarray(tokenizer.encode(text),dtype=np.uint16)
-            np.save(output_path,token_ids)
+        buffer: list[int] = []
+        with (open(dataset, "r", encoding="utf-8") as input_file,
+              open(output_path, "wb") as output_file):
+            print(datetime.now(),f"Generating {output_path}")
+            for token_id in tokenizer.encode_iterable(input_file):
+
+                buffer.append(token_id)
+
+                if len(buffer) >= buffer_size:
+                    np.asarray(buffer, dtype="<u2").tofile(output_file)
+                    buffer.clear()
+
+            # 写入不足一个 buffer 的剩余 token
+            if buffer:
+                np.asarray(buffer, dtype="<u2").tofile(output_file)
 
 
 if __name__ == "__main__":
