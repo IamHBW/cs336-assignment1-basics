@@ -5,6 +5,9 @@ from einops import einsum
 
 
 class Linear(nn.Module):
+    """
+    y = x @ W.t
+    """
     def __init__(self, 
                  in_features, out_features, 
                  device: torch.device | None = None, dtype: torch.dtype | None = None):
@@ -41,3 +44,28 @@ class RMSNorm(nn.Module):
         result = x * self.gain / rms
         # Return the result in the original dtype
         return result.to(in_dtype)
+
+class SiLU(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    
+    def forward(self,x: torch.Tensor) -> torch.Tensor:
+        return x * x.sigmoid()
+
+class SwiGLU(nn.Module):
+    def __init__(self, 
+                     d_model: int, d_ff: int | None = None,
+                     device: torch.device | None = None, dtype: torch.dtype | None = None):
+        super().__init__()
+
+        if not d_ff:
+            d_ff = ((8 * d_model / 3 + 63) // 64) * 64 #round up
+
+        self.W1 = Linear(d_model,d_ff,dtype=dtype,device=device)
+        self.W3 = Linear(d_model,d_ff,dtype=dtype,device=device)
+        self.W2 = Linear(d_ff,d_model,dtype=dtype,device=device)
+        self.silu = SiLU()
+
+    def forward(self,x: torch.Tensor) -> torch.Tensor:
+        return self.W2(self.silu(self.W1(x)) * self.W3(x))
