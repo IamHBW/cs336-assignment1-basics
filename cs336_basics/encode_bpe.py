@@ -39,7 +39,7 @@ def main():
             for start,end in zip(boundaries[:-1], boundaries[1:]):
                 print(datetime.now(),f"Start encoding {output_path} block {i}")
                 token_ids = encode_chunk(dataset,start,end,tokenizer)
-                np.asarray(token_ids, dtype="<u2").tofile(output_file)
+                np.asarray(token_ids, dtype="<u2").tofile(output_file) #use np.fromfile/raw memmap and specify <u2 to load
                 print(datetime.now(),f"Written {output_path} block {i}")
                 i += 1
 
