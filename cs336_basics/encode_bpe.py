@@ -33,9 +33,11 @@ def main():
         with (open(dataset, "rb") as input_file,
               open(output_path, "wb") as output_file):
             print(datetime.now(),f"Generating {output_path}")
-            boundaries = find_chunk_boundaries(input_file,num_chunks,b"<|endoftext|>")
+            sorted_special_tokens = sorted(tokenizer.special_tokens, key=len, reverse=True)
+            boundaries = find_chunk_boundaries(input_file, num_chunks, sorted_special_tokens[0].encode("utf-8"))
             i = 0
             for start,end in zip(boundaries[:-1], boundaries[1:]):
+                print(datetime.now(),f"Start encoding {output_path} block {i}")
                 token_ids = encode_chunk(dataset,start,end,tokenizer)
                 np.asarray(token_ids, dtype="<u2").tofile(output_file)
                 print(datetime.now(),f"Written {output_path} block {i}")

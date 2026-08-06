@@ -132,6 +132,10 @@ class BPE():
                 word: token_id
                 for token_id, word in self.vocab.items()
                 }
+        self.pair2rank = {
+            pair: rank
+            for rank,pair in enumerate(self.merges)
+        }
 
     @classmethod
     def from_files(cls, vocab_filepath: str, merges_filepath: str, special_tokens: list[str] | None = None):
@@ -142,20 +146,24 @@ class BPE():
         return cls(vocab,merges,special_tokens)
 
     def encode(self, text: str) -> list[int]:
-        num_processes = 32
-        num_chunks = 32
-        boundaries = find_chunk_boundaries_text(text, num_chunks, b"<|endoftext|>")
-        token_ids = []
-        # The following is a serial implementation, but you can parallelize this
-        # by sending each start/end pair to a set of processes.
+        num_processes = 48
+        num_chunks = 48
+        if self.special_tokens:
+            sorted_special_tokens = sorted(self.special_tokens, key=len, reverse=True)
+            boundaries = find_chunk_boundaries_text(text, num_chunks, sorted_special_tokens[0].encode("utf-8"))
+            token_ids = []
+            # The following is a serial implementation, but you can parallelize this
+            # by sending each start/end pair to a set of processes.
 
-        # for start,end in zip(boundaries[:-1], boundaries[1:]):
-        #     token_ids.extend(self.tokenize_chunk_text(text,self.special_tokens,start,end))
+            for start,end in zip(boundaries[:-1], boundaries[1:]):
+                token_ids.extend(self.tokenize_chunk_text(text,self.special_tokens,start,end))
 
-        with ProcessPoolExecutor(max_workers=num_processes) as executor:
-            futures = [executor.submit(self.tokenize_chunk_text,text,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
-            for future in futures:
-                token_ids.extend(future.result())
+            # with ProcessPoolExecutor(max_workers=num_processes) as executor:
+            #     futures = [executor.submit(self.tokenize_chunk_text,text,self.special_tokens,start,end) for start, end in zip(boundaries[:-1], boundaries[1:])]
+            #     for future in futures:
+            #         token_ids.extend(future.result())
+        else:
+            token_ids = self.tokenize_chunk_text(text,self.special_tokens,0,len(text.encode("utf-8")))
 
         return token_ids
 
@@ -197,17 +205,34 @@ class BPE():
                         pre_token = match.group()
                         initial_symbols = [bytes([i]) for i in pre_token.encode("utf-8")]
                         old_symbols = initial_symbols
-                        for pair in self.merges:#update current tokens
+
+                        while True:
                             new_symbols = []
-                            j = 0
+                            pair_ranks = []
+                            if len(old_symbols) <= 1:
+                                break
+
+                            for k in range(0,len(old_symbols) - 1):
+                                current_pair = (old_symbols[k], old_symbols[k + 1])
+                                if current_pair in self.pair2rank.keys():
+                                    pair_ranks.append(self.pair2rank[current_pair])
+                                else:
+                                    pair_ranks.append(float("inf"))
+                            if all(x == float("inf") for x in pair_ranks):
+                                break
+
+                            merge_idx = min(range(len(pair_ranks)),key=pair_ranks.__getitem__)
+
+                            j = 0 
                             while j < len(old_symbols):
-                                if (j < len(old_symbols) - 1) and (old_symbols[j], old_symbols[j + 1]) == pair:
+                                if j == merge_idx:
                                     new_symbols.append(old_symbols[j] + old_symbols[j + 1])
                                     j += 2
                                 else:
                                     new_symbols.append(old_symbols[j])
                                     j += 1
                             old_symbols = new_symbols
+
                         # transform old symbols into ids
                         sub_token_ids.extend([self.inverse_vocab[symbol] for symbol in old_symbols])
 
@@ -216,18 +241,34 @@ class BPE():
                 pre_token = match.group()
                 initial_symbols = tuple(bytes([i]) for i in pre_token.encode("utf-8"))
                 old_symbols = initial_symbols
-                for pair in self.merges:#update current tokens
-                
+
+                while True:
                     new_symbols = []
-                    j = 0
+                    pair_ranks = []
+                    if len(old_symbols) <= 1:
+                        break
+
+                    for k in range(0,len(old_symbols) - 1):
+                        current_pair = (old_symbols[k], old_symbols[k + 1])
+                        if current_pair in self.pair2rank.keys():
+                            pair_ranks.append(self.pair2rank[current_pair])
+                        else:
+                            pair_ranks.append(float("inf"))
+                    if all(x == float("inf") for x in pair_ranks):
+                        break
+
+                    merge_idx = min(range(len(pair_ranks)),key=pair_ranks.__getitem__)
+
+                    j = 0 
                     while j < len(old_symbols):
-                        if (j < len(old_symbols) - 1) and (old_symbols[j], old_symbols[j + 1]) == pair:
+                        if j == merge_idx:
                             new_symbols.append(old_symbols[j] + old_symbols[j + 1])
                             j += 2
                         else:
                             new_symbols.append(old_symbols[j])
                             j += 1
                     old_symbols = new_symbols
+                
                 # transform old symbols into ids
                 sub_token_ids.extend([self.inverse_vocab[symbol] for symbol in old_symbols])
         
