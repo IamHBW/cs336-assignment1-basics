@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
 
 from cs336_basics.bpe import BPE_train,BPE
-from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax
+from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -115,7 +115,7 @@ def run_scaled_dot_product_attention(
     Returns:
         Float[Tensor, " ... queries d_v"]: Output of SDPA
     """
-    raise NotImplementedError
+    return scaled_dot_product_attention(Q,K,V,mask)
 
 
 def run_multihead_self_attention(
