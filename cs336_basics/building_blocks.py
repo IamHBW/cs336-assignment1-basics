@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from math import sqrt
-from einops import einsum
+from einops import einsum, rearrange
 
 
 class Linear(nn.Module):
@@ -69,3 +69,34 @@ class SwiGLU(nn.Module):
 
     def forward(self,x: torch.Tensor) -> torch.Tensor:
         return self.W2(self.silu(self.W1(x)) * self.W3(x))
+
+class RotaryPositionalEmbedding(nn.Module):
+    def __init__(self, theta: float, d_k: int, max_seq_len: int, device: torch.device | None = None):
+        super().__init__()
+        self.theta = theta
+        self.d_k = d_k
+        self.max_seq_len = max_seq_len
+        self.device = device
+
+        position = torch.arange(max_seq_len)
+        k = torch.arange(d_k // 2)
+        freq = 1 / (theta ** (2 * k / d_k))
+        angles = einsum(position, freq,"i, k -> i k")
+
+        cos = angles.cos()
+        sin = angles.sin()
+
+        self.register_buffer("cos_table",cos,persistent=False)
+        self.register_buffer("sin_table",sin,persistent=False)
+
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor) -> torch.Tensor:
+        cos = self.cos_table[token_positions]
+        sin = self.sin_table[token_positions]
+        x_even = x[..., 0::2]
+        x_odd  = x[..., 1::2]
+        out_even = x_even * cos - x_odd * sin
+        out_odd  = x_even * sin + x_odd * cos
+        out = torch.stack([out_even,out_odd],dim=-1)
+        out = rearrange(out,"... even odd -> ... (even odd)")
+        return out
