@@ -110,7 +110,43 @@ def softmax(x: torch.Tensor,dim: int) -> torch.Tensor:
 def scaled_dot_product_attention(query: torch.Tensor,key: torch.Tensor,value: torch.Tensor,mask: torch.Tensor | None = None) -> torch.Tensor:
     QK = einsum(query,key,"batch_size ... seq_len_q d_k, batch_size ... seq_len_k d_k -> batch_size ... seq_len_q seq_len_k")
     if mask is not None:
-        mask_reverse = ~ mask
-        QK[mask_reverse] -= torch.inf
+        QK = QK.masked_fill(~mask, float("-inf"))
     QK_softmax = softmax(QK / sqrt(query.shape[-1]),dim=-1)
     return einsum(QK_softmax,value,"batch_size ... seq_len_q seq_len_k, batch_size ... seq_len_k d_v -> batch_size ... seq_len_q d_v")
+
+class CausalMultiHeadSelfAttention(nn.Module):
+    def __init__(self, d_model: int, num_heads: int,max_seq_len: int | None = None, theta: float | None = None,
+                 device: torch.device | None = None, dtype: torch.dtype | None = None):
+        super().__init__()
+        d_k = d_model // num_heads
+        d_v = d_model // num_heads
+        self.device = device
+        self.dtype = dtype
+        self.num_heads = num_heads
+        self.W_q = Linear(d_model,num_heads * d_k,device=device,dtype=dtype)
+        self.W_k = Linear(d_model,num_heads * d_k,device=device,dtype=dtype)
+        self.W_v = Linear(d_model,num_heads * d_v,device=device,dtype=dtype)
+        self.W_o = Linear(num_heads * d_v,d_model,device=device,dtype=dtype)
+        if max_seq_len is not None and theta is not None:
+            self.rope = RotaryPositionalEmbedding(theta,d_k,max_seq_len,device)
+        else:
+            self.rope = None
+
+    def forward(self, x: torch.Tensor, token_positions: torch.Tensor | None = None):
+        queries = self.W_q(x)
+        keys = self.W_k(x)
+        values = self.W_v(x)
+        queries = rearrange(queries,"b seq_len (head d_q) -> b head seq_len d_q",head = self.num_heads)
+        keys = rearrange(keys,"b seq_len (head d_k) -> b head seq_len d_k",head = self.num_heads)
+        values = rearrange(values,"b seq_len (head d_v) -> b head seq_len d_v",head = self.num_heads)
+        if self.rope is not None:
+            queries = self.rope(queries,token_positions)
+            keys = self.rope(keys,token_positions)
+
+        seq_len_q = queries.shape[-2]
+        seq_len_k = keys.shape[-2]
+
+        mask = torch.tril(torch.ones(seq_len_q,seq_len_k,device=self.device,dtype=torch.bool))
+        out = scaled_dot_product_attention(queries,keys,values,mask)
+        return self.W_o(rearrange(out,"b head seq_len d_v -> b seq_len (head d_v)",head = self.num_heads))
+        
