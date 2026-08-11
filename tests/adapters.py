@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
 
 from cs336_basics.bpe import BPE_train,BPE
-from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention,CausalMultiHeadSelfAttention
+from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention,CausalMultiHeadSelfAttention,TransformerBlock
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -297,7 +297,19 @@ def run_transformer_block(
         Float[Tensor, "batch sequence_length d_model"] Tensor with the output of
         running the Transformer block on the input features while using RoPE.
     """
-    raise NotImplementedError
+    transformer = TransformerBlock(d_model,num_heads,d_ff,max_seq_len,theta)
+    with torch.no_grad():
+        transformer.attn.W_q.weight.data = weights["attn.q_proj.weight"]
+        transformer.attn.W_k.weight.data = weights["attn.k_proj.weight"]
+        transformer.attn.W_v.weight.data = weights["attn.v_proj.weight"]
+        transformer.attn.W_o.weight.data = weights["attn.output_proj.weight"]
+        transformer.ff.W1.weight.data = weights["ffn.w1.weight"]
+        transformer.ff.W2.weight.data = weights["ffn.w2.weight"]
+        transformer.ff.W3.weight.data = weights["ffn.w3.weight"]
+        transformer.ln1.gain.data = weights["ln1.weight"]
+        transformer.ln2.gain.data = weights["ln2.weight"]
+    return transformer(in_features)
+
 
 
 def run_transformer_lm(

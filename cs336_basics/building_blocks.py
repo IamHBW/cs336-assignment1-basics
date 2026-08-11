@@ -149,4 +149,23 @@ class CausalMultiHeadSelfAttention(nn.Module):
         mask = torch.tril(torch.ones(seq_len_q,seq_len_k,device=self.device,dtype=torch.bool))
         out = scaled_dot_product_attention(queries,keys,values,mask)
         return self.W_o(rearrange(out,"b head seq_len d_v -> b seq_len (head d_v)",head = self.num_heads))
-        
+
+class TransformerBlock(nn.Module):
+    def __init__(self,d_model: int,
+                    num_heads: int,
+                    d_ff: int,
+                    max_seq_len: int,
+                    theta: float,
+                 device: torch.device | None = None, dtype: torch.dtype | None = None):
+        super().__init__()
+        self.device = device
+        self.dtype = dtype
+        self.attn = CausalMultiHeadSelfAttention(d_model,num_heads,max_seq_len,theta,device,dtype)
+        self.ln1 = RMSNorm(d_model,device=device,dtype=dtype)
+        self.ln2 = RMSNorm(d_model,device=device,dtype=dtype)
+        self.ff = SwiGLU(d_model,d_ff,device,dtype)
+
+    def forward(self, x: torch.Tensor):
+        token_positions = torch.arange(x.shape[-2],device=self.device,dtype=self.dtype)
+        y = x + self.attn(self.ln1(x),token_positions)
+        return y + self.ff(self.ln2(y))
