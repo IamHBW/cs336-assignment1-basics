@@ -5,7 +5,7 @@ from collections.abc import Iterable
 from typing import IO, Any, BinaryIO
 
 from cs336_basics.bpe import BPE_train,BPE
-from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention,CausalMultiHeadSelfAttention,TransformerBlock
+from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention,CausalMultiHeadSelfAttention,TransformerBlock, TransformerLM
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -391,7 +391,23 @@ def run_transformer_lm(
         Float[Tensor, "batch_size sequence_length vocab_size"]: Tensor with the predicted unnormalized
         next-word distribution for each token.
     """
-    raise NotImplementedError
+    model = TransformerLM(vocab_size,context_length,d_model,num_layers,num_heads,d_ff,rope_theta)
+    with torch.no_grad():
+        model.input_embed.weights.copy_(weights["token_embeddings.weight"])
+        for i in range(num_layers):
+        
+            model.layers[i].attn.W_q.weight.copy_(weights[f"layers.{i}.attn.q_proj.weight"])
+            model.layers[i].attn.W_k.weight.copy_(weights[f"layers.{i}.attn.k_proj.weight"])  
+            model.layers[i].attn.W_v.weight.copy_(weights[f"layers.{i}.attn.v_proj.weight"])  
+            model.layers[i].attn.W_o.weight.copy_(weights[f"layers.{i}.attn.output_proj.weight"])  
+            model.layers[i].ff.W1.weight.copy_(weights[f"layers.{i}.ffn.w1.weight"])  
+            model.layers[i].ff.W2.weight.copy_(weights[f"layers.{i}.ffn.w2.weight"])  
+            model.layers[i].ff.W3.weight.copy_(weights[f"layers.{i}.ffn.w3.weight"])  
+            model.layers[i].ln1.gain.copy_(weights[f"layers.{i}.ln1.weight"])  
+            model.layers[i].ln2.gain.copy_(weights[f"layers.{i}.ln2.weight"])
+        model.ln_final.gain.copy_(weights["ln_final.weight"])
+        model.output_embed.weight.copy_(weights["lm_head.weight"])
+    return model(in_indices)  
 
 
 def run_rmsnorm(
