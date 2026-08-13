@@ -6,7 +6,7 @@ from typing import IO, Any, BinaryIO
 
 from cs336_basics.bpe import BPE_train,BPE
 from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention,CausalMultiHeadSelfAttention,TransformerBlock, TransformerLM
-from cs336_basics.training_utils import cross_entropy_loss
+from cs336_basics.training_utils import cross_entropy_loss, AdamW
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -524,7 +524,7 @@ def get_adamw_cls() -> Any:
     """
     Returns a torch.optim.Optimizer that implements AdamW.
     """
-    raise NotImplementedError
+    return AdamW
 
 
 def run_get_lr_cosine_schedule(
