@@ -6,7 +6,7 @@ from typing import IO, Any, BinaryIO
 
 from cs336_basics.bpe import BPE_train,BPE
 from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention,CausalMultiHeadSelfAttention,TransformerBlock, TransformerLM
-from cs336_basics.training_utils import cross_entropy_loss, AdamW
+from cs336_basics.training_utils import cross_entropy_loss, AdamW,lr_cosine_scheduler
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -552,7 +552,7 @@ def run_get_lr_cosine_schedule(
     Returns:
         Learning rate at the given iteration under the specified schedule.
     """
-    raise NotImplementedError
+    return lr_cosine_scheduler(it,max_learning_rate,min_learning_rate,warmup_iters,cosine_cycle_iters)
 
 
 def run_save_checkpoint(

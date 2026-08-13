@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-from math import sqrt
+from math import sqrt,cos,pi
 from collections.abc import Callable, Iterable
 from typing import Optional
 
@@ -64,3 +64,11 @@ class AdamW(torch.optim.Optimizer):
                 state["m"] = m
                 state["v"] = v
         return loss
+
+def lr_cosine_scheduler(t,lr_max,lr_min,T_w,T_c):
+    if t < T_w:
+        return t / T_w * lr_max
+    elif t <= T_c:
+        return lr_min + (1 + cos((t - T_w) * pi / (T_c - T_w))) * (lr_max - lr_min) / 2
+    else:
+        return lr_min
