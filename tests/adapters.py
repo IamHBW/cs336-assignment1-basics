@@ -6,7 +6,7 @@ from typing import IO, Any, BinaryIO
 
 from cs336_basics.bpe import BPE_train,BPE
 from cs336_basics.building_blocks import Linear,Embedding,RMSNorm,SwiGLU,RotaryPositionalEmbedding,softmax,scaled_dot_product_attention,CausalMultiHeadSelfAttention,TransformerBlock, TransformerLM
-from cs336_basics.training_utils import cross_entropy_loss, AdamW,lr_cosine_scheduler
+from cs336_basics.training_utils import cross_entropy_loss, AdamW,lr_cosine_scheduler,gradient_clipping,get_batch
 import numpy.typing as npt
 import torch
 from jaxtyping import Bool, Float, Int
@@ -471,7 +471,7 @@ def run_get_batch(
         is the sampled input sequences, and the second tuple item is the corresponding
         language modeling labels.
     """
-    raise NotImplementedError
+    return get_batch(dataset,batch_size,context_length,device)
 
 
 def run_softmax(in_features: Float[Tensor, " ..."], dim: int) -> Float[Tensor, " ..."]:
@@ -517,7 +517,7 @@ def run_gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm:
 
     The gradients of the parameters (parameter.grad) should be modified in-place.
     """
-    raise NotImplementedError
+    gradient_clipping(parameters,max_l2_norm)
 
 
 def get_adamw_cls() -> Any:

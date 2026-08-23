@@ -3,7 +3,8 @@ import torch.nn as nn
 from math import sqrt,cos,pi
 from collections.abc import Callable, Iterable
 from typing import Optional
-
+import numpy.typing as npt
+import numpy as np
 
 def cross_entropy_loss(logits: torch.Tensor,target: torch.Tensor):
     logits -= logits.max(dim=-1,keepdim=True).values
@@ -72,3 +73,29 @@ def lr_cosine_scheduler(t,lr_max,lr_min,T_w,T_c):
         return lr_min + (1 + cos((t - T_w) * pi / (T_c - T_w))) * (lr_max - lr_min) / 2
     else:
         return lr_min
+
+def gradient_clipping(parameters: Iterable[torch.nn.Parameter], max_l2_norm: float) -> None:
+    eps = 1e-6
+    grad_l2_norm_sqared = 0
+    for param in parameters:
+        if param.grad is None:
+            continue
+        grad_l2_norm_sqared += param.grad.norm(p=2) ** 2
+
+    if grad_l2_norm_sqared >= max_l2_norm ** 2:
+        for param in parameters:
+            if param.grad is not None:
+                param.grad *= max_l2_norm / (grad_l2_norm_sqared.sqrt() + eps)
+
+def get_batch(
+    dataset: npt.NDArray, batch_size: int, context_length: int, device: str
+) -> tuple[torch.Tensor, torch.Tensor]:
+    n = len(dataset)
+    input_seq = torch.zeros(batch_size,context_length,dtype=torch.long,device=device)
+    targets = torch.zeros(batch_size,context_length,dtype=torch.long,device=device)
+    for i in range(batch_size):
+        start = np.random.randint(0,n - context_length)
+        chunk = dataset[start:start + context_length + 1]
+        input_seq[i] = torch.as_tensor(chunk[:-1],dtype=torch.long,device=device)
+        targets[i] = torch.as_tensor(chunk[1:],dtype=torch.long,device=device)
+    return (input_seq,targets)
