@@ -5,6 +5,7 @@ from collections.abc import Callable, Iterable
 from typing import Optional
 import numpy.typing as npt
 import numpy as np
+import os,typing
 
 def cross_entropy_loss(logits: torch.Tensor,target: torch.Tensor):
     logits -= logits.max(dim=-1,keepdim=True).values
@@ -99,3 +100,18 @@ def get_batch(
         input_seq[i] = torch.as_tensor(chunk[:-1],dtype=torch.long,device=device)
         targets[i] = torch.as_tensor(chunk[1:],dtype=torch.long,device=device)
     return (input_seq,targets)
+
+def save_checkpoint(model: torch.nn.Module, 
+optimizer: torch.optim.Optimizer,  
+iteration: int , 
+out: str | os.PathLike | typing.BinaryIO | typing.IO[bytes]):
+    obj = {"model": model.state_dict(),"optimizer": optimizer.state_dict(),"iteration": iteration}
+    torch.save(obj,out)
+
+def load_checkpoint(src: str | os.PathLike | typing.BinaryIO | typing.IO[bytes],  
+model: torch.nn.Module,  
+optimizer: torch.optim.Optimizer):
+    obj = torch.load(src)
+    model.load_state_dict(obj["model"])
+    optimizer.load_state_dict(obj["optimizer"])
+    return obj["iteration"]
